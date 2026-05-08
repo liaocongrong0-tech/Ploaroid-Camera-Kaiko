@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polaroid — Instant Camera</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #1a1614;
+      --paper: #f5f2ee;
+      --accent: #e8432d;
+      --muted: #9b9189;
+      --card: rgba(255,255,255,0.55);
+      --border: rgba(0,0,0,0.08);
+      --bar-h: 108px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 100vw; height: 100vh; overflow: hidden;
+      font-family: 'DM Mono', monospace;
+      background: var(--paper);
+      transition: background 0.9s ease;
+    }
+    body::before {
+      content: ''; position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 2000; opacity: 0.45;
+    }
+    body.bg-sage     { background: #c8cfc4; }
+    body.bg-blush    { background: #e2c4c4; }
+    body.bg-gradient { background: linear-gradient(135deg,#ffd6cc 0%,#fce4ec 40%,#e8d5f0 100%); }
+    body.bg-night    { background: #1a1614; }
+
+    #flash-overlay {
+      position: fixed; inset: 0; background: #fff; opacity: 0;
+      z-index: 9999; pointer-events: none; transition: opacity 0.6s ease-out;
+    }
+    .flash-active { opacity: 1 !important; transition: none !important; }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 500;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 24px;
+    }
+    .toolbar-brand {
+      font-family: 'DM Serif Display', serif; font-size: 22px;
+      letter-spacing: 0.04em; color: var(--ink); opacity: 0.85;
+    }
+    .toolbar-right { display: flex; align-items: center; gap: 10px; }
+    .pill-btn {
+      display: flex; align-items: center; gap: 7px;
+      padding: 8px 16px; border-radius: 100px;
+      border: 1.5px solid var(--border); background: var(--card);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      font-family: 'DM Mono', monospace; font-size: 11px;
+      font-weight: 500; letter-spacing: 0.05em; color: var(--ink);
+      cursor: pointer; transition: background .2s, transform .15s;
+    }
+    .pill-btn:hover { background: rgba(255,255,255,0.82); transform: translateY(-1px); }
+    .pill-btn:active { transform: translateY(0); }
+    .swatch-strip {
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 100px;
+      border: 1.5px solid var(--border); background: var(--card);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    }
+    .swatch-label { font-size: 10px; letter-spacing:.08em; color:var(--muted); text-transform:uppercase; margin-right:4px; }
+    .swatch {
+      width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
+      border: 2px solid transparent; transition: transform .2s, border-color .2s;
+    }
+    .swatch:hover { transform: scale(1.2); }
+    .swatch.active { border-color: var(--ink); }
+    .swatch-paper    { background: #f5f2ee; }
+    .swatch-sage     { background: #c8cfc4; }
+    .swatch-blush    { background: #e2c4c4; }
+    .swatch-gradient { background: linear-gradient(135deg,#ffd6cc,#e8d5f0); }
+    .swatch-night    { background: #1a1614; }
+    body.bg-night .toolbar-brand, body.bg-night .hint-text { color: rgba(245,242,238,0.7); }
+    body.bg-night .pill-btn { color: rgba(245,242,238,.85); border-color: rgba(255,255,255,.15); background: rgba(255,255,255,.08); }
+    body.bg-night .swatch-strip { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.07); }
+    body.bg-night .swatch-label { color: rgba(245,242,238,.4); }
+    body.bg-night .swatch.active { border-color: #f5f2ee; }
+    body.bg-night .sticker-bar { background: rgba(10,8,7,0.78); border-top-color: rgba(255,255,255,0.07); }
+    body.bg-night .sticker-bar-label { color: rgba(245,242,238,0.35); }
+
+    /* ── Photo wall ── */
+    #photo-wall { position: absolute; inset: 0; z-index: 10; }
+
+    /* ── Camera ── */
+    .camera-wrapper {
+      position: absolute;
+      top: calc(50% - var(--bar-h)/2);
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 100;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    .paper-slot {
+      width: 180px; height: 14px; background: #0d0b0a;
+      border-radius: 6px 6px 0 0; box-shadow: inset 0 4px 8px rgba(0,0,0,.9); z-index: 101;
+    }
+    .camera-body {
+      width: 290px; height: 275px;
+      background: linear-gradient(160deg,#2e2926 0%,#1c1916 100%);
+      border-radius: 28px;
+      box-shadow: 0 24px 60px rgba(0,0,0,.5),0 8px 20px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.07);
+      position: relative; z-index: 102;
+      display: flex; flex-direction: column;
+      border: 1.5px solid #3a3530;
+    }
+    .camera-face {
+      width: 88%; height: 62%;
+      background: linear-gradient(160deg,#3a3530 0%,#282421 100%);
+      margin: 14px auto 0; border-radius: 18px; position: relative;
+      box-shadow: inset 0 0 12px rgba(0,0,0,.7),0 1px 0 rgba(255,255,255,.05);
+    }
+    .flash-unit {
+      position: absolute; top: 22px; left: 18px; width: 42px; height: 42px;
+      border-radius: 50%; background: #d0cec8;
+      box-shadow: inset 0 0 8px rgba(0,0,0,.5),0 0 0 3px #1c1916,0 0 0 5px #3a3530;
+      overflow: hidden;
+    }
+    .flash-unit::before {
+      content:''; position:absolute; inset:4px; border-radius:50%;
+      background: repeating-conic-gradient(from 0deg,#ccc 0deg 10deg,#aaa 10deg 20deg); opacity:.4;
+    }
+    .viewfinder {
+      position: absolute; top: 24px; right: 18px; width: 36px; height: 28px;
+      background: linear-gradient(135deg,#0d0b0a,#2a2523);
+      border-radius: 7px; border: 3px solid #131110;
+      box-shadow: inset 1px 1px 4px rgba(255,255,255,.15);
+    }
+    .lens-bezel {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      width: 128px; height: 128px; border-radius: 50%;
+      background: radial-gradient(circle,#0a0908 60%,#1c1916 100%);
+      box-shadow: 0 0 0 6px #1c1916,0 0 0 9px #3a3530,0 0 0 11px #1c1916,0 6px 20px rgba(0,0,0,.8),inset 0 0 24px rgba(0,0,0,.9);
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    .lens-bezel::after {
+      content:''; position:absolute; top:8px; left:50%; transform:translateX(-50%);
+      width:36px; height:5px; border-radius:3px;
+      background: linear-gradient(to right,#ff3b30,#ff9500,#ffcc00,#4cd964,#34aadc,#5856d6);
+      opacity:.7; z-index:5;
+    }
+    #webcam {
+      width: 108%; height: 108%;
+      object-fit: cover; transform: scaleX(-1);
+      filter: contrast(1.05) brightness(.92); border-radius: 50%;
+    }
+    .shutter-btn {
+      position: absolute; bottom: 14px; left: 22px;
+      width: 32px; height: 32px;
+      background: radial-gradient(circle at 35% 35%,#e8432d,#8b1a0d);
+      border-radius: 50%; border: none; cursor: pointer;
+      box-shadow: 0 3px 0 #5a0d05,0 4px 10px rgba(0,0,0,.5);
+      transition: transform .1s, box-shadow .1s;
+    }
+    .shutter-btn:active { transform: translateY(3px); box-shadow: 0 0 0 #5a0d05,0 2px 5px rgba(0,0,0,.5); }
+    .shot-counter { position:absolute; bottom:18px; right:22px; font-size:9px; letter-spacing:.1em; color:#8a7e75; }
+    .camera-bottom { flex:1; display:flex; justify-content:center; align-items:center; position:relative; }
+    .brand-text { font-family:'DM Serif Display',serif; font-style:italic; font-size:20px; letter-spacing:.12em; color:#8a7e75; margin-bottom:12px; }
+    .slot-lip { position:absolute; bottom:12px; width:210px; height:7px; background:#0d0b0a; border-radius:8px; }
+    .hint-text { margin-top:20px; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); opacity:.75; }
+
+    /* ── Polaroid photos ── */
+    .polaroid-photo {
+      position: absolute; width: 210px;
+      background: #fefefe;
+      padding: 12px 12px 46px 12px;
+      box-shadow: 0 4px 18px rgba(0,0,0,.2),0 1px 4px rgba(0,0,0,.1);
+      top: 50%; left: 50%; transform: translate(-50%,-50%);
+      opacity: 0; z-index: 90; cursor: grab;
+      transition: box-shadow .2s;
+    }
+    .polaroid-photo:hover { box-shadow: 0 12px 36px rgba(0,0,0,.28),0 2px 8px rgba(0,0,0,.12); }
+    .polaroid-photo:active { cursor: grabbing; }
+    .photo-inner { width:100%; aspect-ratio:1; background:#111; overflow:hidden; position:relative; }
+
+    /* Film preset filters */
+    .photo-img {
+      width:100%; height:100%; object-fit:cover; transform:scaleX(-1);
+      filter: brightness(5) contrast(.1) blur(12px);
+      transition: filter 9s cubic-bezier(.25,.1,.25,1);
+    }
+    .photo-img.developed.film-kodak   { filter: sepia(.28) contrast(1.12) brightness(.97) saturate(.88); }
+    .photo-img.developed.film-fuji    { filter: hue-rotate(8deg) saturate(1.1) contrast(1.08) brightness(.93) sepia(.15); }
+    .photo-img.developed.film-ilford  { filter: grayscale(.85) contrast(1.2) brightness(.94) sepia(.12); }
+    .photo-img.developed.film-lomo    { filter: saturate(1.35) contrast(1.3) brightness(.88) hue-rotate(-12deg) sepia(.1); }
+    .photo-img.developed.film-expired { filter: sepia(.55) contrast(.9) brightness(.88) saturate(.6) hue-rotate(5deg); }
+
+    /* Overlays inside photo */
+    .grain-overlay {
+      position:absolute; inset:0; pointer-events:none; z-index:3;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.13'/%3E%3C/svg%3E");
+      mix-blend-mode:overlay; opacity:.55;
+    }
+    .vignette-overlay {
+      position:absolute; inset:0; pointer-events:none; z-index:4;
+      background: radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,.44) 100%);
+    }
+    .leak-overlay {
+      position:absolute; top:0; right:0; width:55%; height:38%;
+      pointer-events:none; z-index:5; opacity:0;
+      background: linear-gradient(135deg, rgba(255,175,70,.2) 0%, transparent 65%);
+      transition: opacity .5s;
+    }
+    .photo-img.developed ~ .leak-overlay { opacity:1; }
+
+    .delete-btn {
+      position:absolute; top:-10px; right:-10px;
+      width:26px; height:26px; border-radius:50%;
+      background:var(--ink); border:2px solid #fff;
+      color:#fff; font-size:14px;
+      display:flex; align-items:center; justify-content:center;
+      cursor:pointer; opacity:0; transform:scale(.7);
+      transition: opacity .2s, transform .2s; z-index:10;
+    }
+    .polaroid-photo:hover .delete-btn { opacity:1; transform:scale(1); }
+    .delete-btn:hover { background:var(--accent); }
+    .photo-timestamp {
+      position:absolute; bottom:10px; left:12px;
+      font-size:8px; letter-spacing:.08em; color:#c0b8b0; font-family:'DM Mono',monospace;
+    }
+    .film-label {
+      position:absolute; bottom:10px; right:12px;
+      font-size:7.5px; letter-spacing:.1em; color:#c0b8b0;
+      font-family:'DM Mono',monospace; text-transform:uppercase;
+    }
+    @keyframes ejectUp {
+      0%   { transform: translate(-50%,-50%); opacity:1; }
+      100% { transform: translate(-50%,-175%); opacity:1; }
+    }
+
+    /* ── Sticker bar ── */
+    .sticker-bar {
+      position: fixed; bottom:0; left:0; right:0;
+      height: var(--bar-h);
+      background: rgba(245,242,238,0.78);
+      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+      border-top: 1.5px solid var(--border);
+      z-index: 400;
+      display: flex; align-items: center;
+      padding: 0 20px;
+    }
+    .sticker-bar-label {
+      font-size: 9px; letter-spacing:.13em; text-transform:uppercase;
+      color:var(--muted); writing-mode:vertical-rl;
+      transform:rotate(180deg); margin-right:14px; flex-shrink:0;
+    }
+    .sticker-scroll {
+      display:flex; align-items:center; gap:6px;
+      overflow-x:auto; flex:1;
+      padding: 6px 0;
+      scrollbar-width:none;
+    }
+    .sticker-scroll::-webkit-scrollbar { display:none; }
+    .sticker-item {
+      flex-shrink:0; width:72px; height:72px; border-radius:14px;
+      display:flex; align-items:center; justify-content:center;
+      cursor:pointer; transition:transform .2s, background .15s;
+      user-select:none;
+    }
+    .sticker-item:hover { transform:scale(1.18) rotate(-4deg); background:rgba(255,255,255,.55); }
+    .sticker-item:active { transform:scale(1.06); }
+    .sticker-item svg { width:54px; height:54px; }
+
+    /* Board stickers */
+    .board-sticker {
+      position:absolute; z-index:200; cursor:grab; user-select:none;
+    }
+    .board-sticker:active { cursor:grabbing; }
+    .board-sticker svg { width:80px; height:80px; display:block; }
+    .sticker-delete {
+      position:absolute; top:-9px; right:-9px;
+      width:22px; height:22px; border-radius:50%;
+      background:var(--ink); border:2px solid #fff;
+      color:#fff; font-size:12px;
+      display:flex; align-items:center; justify-content:center;
+      cursor:pointer; opacity:0; transform:scale(.7);
+      transition:opacity .2s,transform .2s; z-index:10;
+    }
+    .board-sticker:hover .sticker-delete { opacity:1; transform:scale(1); }
+    .sticker-delete:hover { background:var(--accent); }
+
+    canvas { display:none; }
+  </style>
+</head>
+<body>
+  <div id="flash-overlay"></div>
+
+  <div class="toolbar">
+    <span class="toolbar-brand">Polaroid</span>
+    <div class="toolbar-right">
+      <div class="swatch-strip">
+        <span class="swatch-label">Scene</span>
+        <div class="swatch swatch-paper active"   title="Warm Paper" onclick="changeBg('',this)"></div>
+        <div class="swatch swatch-sage"            title="Sage"       onclick="changeBg('bg-sage',this)"></div>
+        <div class="swatch swatch-blush"           title="Blush"      onclick="changeBg('bg-blush',this)"></div>
+        <div class="swatch swatch-gradient"        title="Gradient"   onclick="changeBg('bg-gradient',this)"></div>
+        <div class="swatch swatch-night"           title="Night"      onclick="changeBg('bg-night',this)"></div>
+      </div>
+      <button class="pill-btn" onclick="downloadLayout()">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+          <path d="M8 2v9M4.5 8l3.5 3.5L11.5 8M2 13h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Save Layout
+      </button>
+    </div>
+  </div>
+
+  <div id="photo-wall"></div>
+
+  <div class="camera-wrapper" id="camera-wrapper">
+    <div class="paper-slot"></div>
+    <div class="camera-body">
+      <div class="camera-face">
+        <div class="flash-unit"></div>
+        <div class="viewfinder"></div>
+        <div class="lens-bezel">
+          <video id="webcam" autoplay playsinline></video>
+        </div>
+        <button class="shutter-btn" id="shutter-btn"></button>
+        <div class="shot-counter" id="shot-counter">00</div>
+      </div>
+      <div class="camera-bottom">
+        <span class="brand-text">polaroid</span>
+        <div class="slot-lip"></div>
+      </div>
+    </div>
+    <div class="hint-text">Press the shutter</div>
+  </div>
+
+  <div class="sticker-bar">
+    <span class="sticker-bar-label">Stickers</span>
+    <div class="sticker-scroll" id="sticker-scroll"></div>
+  </div>
+
+  <canvas id="capture-canvas"></canvas>
+
+<script>
+// ─────────────────────────────────────────────
+//  20 VINTAGE HAND-DRAWN STICKERS
+// ─────────────────────────────────────────────
+const STICKERS = [
+  { id:'sun', label:'Sun', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="13" fill="#f6c94e" stroke="#d4883a" stroke-width="2.5"/><line x1="40" y1="8" x2="40" y2="18" stroke="#d4883a" stroke-width="2.5" stroke-linecap="round"/><line x1="40" y1="62" x2="40" y2="72" stroke="#d4883a" stroke-width="2.5" stroke-linecap="round"/><line x1="8" y1="40" x2="18" y2="40" stroke="#d4883a" stroke-width="2.5" stroke-linecap="round"/><line x1="62" y1="40" x2="72" y2="40" stroke="#d4883a" stroke-width="2.5" stroke-linecap="round"/><line x1="18.5" y1="18.5" x2="25.5" y2="25.5" stroke="#d4883a" stroke-width="2.5" stroke-linecap="round"/><line x1="54.5" y1="54.5" x2="61.5" y2="61.5" stroke="#d4883a" stroke-width="2.5" stroke-linecap="round"/><line x1="61.5" y1="18.5" x2="54.5" y2="25.5" stroke="#d4883a" stroke-width="2.5" stroke-linecap="round"/><line x1="25.5" y1="54.5" x2="18.5" y2="61.5" stroke="#d4883a" stroke-width="2.5" stroke-linecap="round"/></svg>` },
+
+  { id:'moon', label:'Moon', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M46 14 C30 18 22 30 24 44 C26 58 38 66 52 64 C42 62 34 54 33 44 C31 33 36 22 46 14Z" fill="#f0d580" stroke="#c8a840" stroke-width="2" stroke-linejoin="round"/><circle cx="56" cy="22" r="2.5" fill="#f0d580" stroke="#c8a840" stroke-width="1.5"/><circle cx="62" cy="34" r="1.8" fill="#f0d580" stroke="#c8a840" stroke-width="1.5"/><circle cx="60" cy="46" r="2" fill="#f0d580" stroke="#c8a840" stroke-width="1.5"/></svg>` },
+
+  { id:'star', label:'Star', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M40 10 L44.5 28 L63 28 L49 39 L53.5 57 L40 46 L26.5 57 L31 39 L17 28 L35.5 28 Z" fill="#f7e06a" stroke="#c9a020" stroke-width="2" stroke-linejoin="round"/></svg>` },
+
+  { id:'heart', label:'Heart', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M40 62 C40 62 12 46 12 28 C12 20 18 14 26 14 C32 14 37 18 40 22 C43 18 48 14 54 14 C62 14 68 20 68 28 C68 46 40 62 40 62Z" fill="#e05c5c" stroke="#a83030" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 26 C24 22 28 19 32 20" stroke="#f08080" stroke-width="2" stroke-linecap="round" fill="none"/></svg>` },
+
+  { id:'rainbow', label:'Rainbow', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M10 56 Q10 22 40 22 Q70 22 70 56" fill="none" stroke="#e05c5c" stroke-width="5" stroke-linecap="round"/><path d="M16 56 Q16 28 40 28 Q64 28 64 56" fill="none" stroke="#e89040" stroke-width="5" stroke-linecap="round"/><path d="M22 56 Q22 34 40 34 Q58 34 58 56" fill="none" stroke="#f0d040" stroke-width="5" stroke-linecap="round"/><path d="M28 56 Q28 40 40 40 Q52 40 52 56" fill="none" stroke="#68c060" stroke-width="5" stroke-linecap="round"/><path d="M34 56 Q34 46 40 46 Q46 46 46 56" fill="none" stroke="#6090d8" stroke-width="5" stroke-linecap="round"/><ellipse cx="16" cy="55" rx="8" ry="6" fill="#f8f4ee" stroke="#ddd" stroke-width="1.5"/><ellipse cx="64" cy="55" rx="8" ry="6" fill="#f8f4ee" stroke="#ddd" stroke-width="1.5"/></svg>` },
+
+  { id:'flower', label:'Flower', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><ellipse cx="40" cy="22" rx="7" ry="12" fill="#f0b8c8" stroke="#c07080" stroke-width="1.8"/><ellipse cx="40" cy="58" rx="7" ry="12" fill="#f0b8c8" stroke="#c07080" stroke-width="1.8"/><ellipse cx="22" cy="40" rx="12" ry="7" fill="#f0b8c8" stroke="#c07080" stroke-width="1.8"/><ellipse cx="58" cy="40" rx="12" ry="7" fill="#f0b8c8" stroke="#c07080" stroke-width="1.8"/><ellipse cx="27" cy="27" rx="7" ry="12" fill="#f4c8d4" stroke="#c07080" stroke-width="1.8" transform="rotate(-45 27 27)"/><ellipse cx="53" cy="27" rx="7" ry="12" fill="#f4c8d4" stroke="#c07080" stroke-width="1.8" transform="rotate(45 53 27)"/><ellipse cx="27" cy="53" rx="7" ry="12" fill="#f4c8d4" stroke="#c07080" stroke-width="1.8" transform="rotate(45 27 53)"/><ellipse cx="53" cy="53" rx="7" ry="12" fill="#f4c8d4" stroke="#c07080" stroke-width="1.8" transform="rotate(-45 53 53)"/><circle cx="40" cy="40" r="11" fill="#f6c94e" stroke="#c89030" stroke-width="2"/><circle cx="36" cy="37" r="1.5" fill="#c89030"/><circle cx="41" cy="36" r="1.5" fill="#c89030"/><circle cx="44" cy="40" r="1.5" fill="#c89030"/></svg>` },
+
+  { id:'mushroom', label:'Mushroom', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M28 46 Q26 60 32 62 Q40 65 48 62 Q54 60 52 46Z" fill="#f5f0e8" stroke="#b09870" stroke-width="2"/><path d="M34 62 L34 68 Q40 70 46 68 L46 62" stroke="#b09870" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M40 12 C22 12 14 26 16 42 C20 50 32 52 40 52 C48 52 60 50 64 42 C66 26 58 12 40 12Z" fill="#d44030" stroke="#a02820" stroke-width="2"/><circle cx="32" cy="28" r="5" fill="#f5f0e8" opacity="0.9"/><circle cx="48" cy="24" r="4" fill="#f5f0e8" opacity="0.9"/><circle cx="42" cy="38" r="3.5" fill="#f5f0e8" opacity="0.9"/><circle cx="26" cy="38" r="3" fill="#f5f0e8" opacity="0.9"/></svg>` },
+
+  { id:'butterfly', label:'Butterfly', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M40 40 C36 36 18 28 14 20 C10 12 18 8 24 14 C30 20 38 34 40 40Z" fill="#c8a0e0" stroke="#8060b0" stroke-width="1.8"/><path d="M40 40 C44 36 62 28 66 20 C70 12 62 8 56 14 C50 20 42 34 40 40Z" fill="#c8a0e0" stroke="#8060b0" stroke-width="1.8"/><path d="M40 40 C34 44 20 50 16 58 C12 66 22 70 28 64 C34 58 38 46 40 40Z" fill="#d4b0e8" stroke="#8060b0" stroke-width="1.8"/><path d="M40 40 C46 44 60 50 64 58 C68 66 58 70 52 64 C46 58 42 46 40 40Z" fill="#d4b0e8" stroke="#8060b0" stroke-width="1.8"/><path d="M40 20 Q41 30 40 40 Q39 50 40 60" stroke="#4a3060" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M40 20 C38 14 34 12 32 14" stroke="#4a3060" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M40 20 C42 14 46 12 48 14" stroke="#4a3060" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>` },
+
+  { id:'cherry', label:'Cherries', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M30 44 C30 28 40 18 50 14" stroke="#5a8030" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M50 44 C50 30 50 18 50 14" stroke="#5a8030" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M36 28 C42 24 46 26 50 28" stroke="#5a8030" stroke-width="2" fill="none"/><ellipse cx="35" cy="16" rx="6" ry="5" fill="#6aaa30" stroke="#4a8020" stroke-width="1.5"/><circle cx="30" cy="56" r="12" fill="#d03030" stroke="#901818" stroke-width="2"/><circle cx="26" cy="52" r="2.5" fill="#ff6060" opacity="0.6"/><circle cx="50" cy="56" r="12" fill="#d03030" stroke="#901818" stroke-width="2"/><circle cx="46" cy="52" r="2.5" fill="#ff6060" opacity="0.6"/></svg>` },
+
+  { id:'lightning', label:'Lightning', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M48 8 L26 42 L40 42 L32 72 L58 36 L44 36 Z" fill="#f6d040" stroke="#c8a010" stroke-width="2.5" stroke-linejoin="round"/></svg>` },
+
+  { id:'film', label:'Film Strip', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><rect x="14" y="20" width="52" height="40" rx="4" fill="#2a2420" stroke="#1a1410" stroke-width="2"/><rect x="14" y="26" width="8" height="8" rx="1.5" fill="#f5f0e0"/><rect x="14" y="38" width="8" height="8" rx="1.5" fill="#f5f0e0"/><rect x="14" y="50" width="8" height="8" rx="1.5" fill="#f5f0e0"/><rect x="58" y="26" width="8" height="8" rx="1.5" fill="#f5f0e0"/><rect x="58" y="38" width="8" height="8" rx="1.5" fill="#f5f0e0"/><rect x="58" y="50" width="8" height="8" rx="1.5" fill="#f5f0e0"/><rect x="26" y="24" width="28" height="32" rx="3" fill="#6080a8" stroke="#405878" stroke-width="1.5"/><circle cx="40" cy="40" r="7" fill="#3a5070" stroke="#f5f0e0" stroke-width="1.5"/><circle cx="40" cy="40" r="3" fill="#f5f0e0"/></svg>` },
+
+  { id:'camera', label:'Camera', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M14 28 L22 28 L28 18 L52 18 L58 28 L66 28 C68 28 70 30 70 32 L70 60 C70 62 68 64 66 64 L14 64 C12 64 10 62 10 60 L10 32 C10 30 12 28 14 28Z" fill="#e8ddd0" stroke="#a09080" stroke-width="2"/><circle cx="40" cy="44" r="13" fill="#d4c8b8" stroke="#a09080" stroke-width="2"/><circle cx="40" cy="44" r="8" fill="#8090a8" stroke="#607080" stroke-width="1.5"/><circle cx="40" cy="44" r="4" fill="#4a6078"/><circle cx="37" cy="41" r="1.5" fill="#a0b8c8" opacity="0.7"/><rect x="54" y="32" width="8" height="5" rx="2" fill="#f6c94e" stroke="#c89030" stroke-width="1.5"/></svg>` },
+
+  { id:'leaf', label:'Botanica', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M40 68 Q40 40 40 20" stroke="#5a8040" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M40 46 C32 40 20 34 16 22 C26 18 38 26 40 46Z" fill="#7aaa50" stroke="#4a8030" stroke-width="1.8"/><path d="M40 32 C48 26 60 20 64 8 C54 4 42 12 40 32Z" fill="#8aba60" stroke="#4a8030" stroke-width="1.8"/><path d="M40 60 C34 54 24 52 18 48 C22 40 36 44 40 60Z" fill="#6a9a45" stroke="#4a8030" stroke-width="1.8"/></svg>` },
+
+  { id:'stamp', label:'Postmark', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="28" fill="none" stroke="#a04030" stroke-width="3" stroke-dasharray="4,3"/><circle cx="40" cy="40" r="22" fill="none" stroke="#a04030" stroke-width="2"/><text x="40" y="37" text-anchor="middle" font-family="Georgia,serif" font-size="9" fill="#a04030" font-style="italic">INSTANT</text><text x="40" y="48" text-anchor="middle" font-family="Courier New,monospace" font-size="7" fill="#a04030" letter-spacing="2">2026</text><line x1="18" y1="40" x2="28" y2="40" stroke="#a04030" stroke-width="1.5"/><line x1="52" y1="40" x2="62" y2="40" stroke="#a04030" stroke-width="1.5"/></svg>` },
+
+  { id:'eye', label:'Evil Eye', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M10 40 Q25 18 40 18 Q55 18 70 40 Q55 62 40 62 Q25 62 10 40Z" fill="#c8d8f0" stroke="#6080c0" stroke-width="2"/><circle cx="40" cy="40" r="13" fill="#4870c0" stroke="#2850a0" stroke-width="2"/><circle cx="40" cy="40" r="8" fill="#1a2848"/><circle cx="37" cy="37" r="3.5" fill="#fff" opacity="0.8"/><circle cx="43" cy="43" r="2" fill="#fff" opacity="0.4"/></svg>` },
+
+  { id:'peace', label:'Peace', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="26" fill="none" stroke="#7080b0" stroke-width="3"/><line x1="40" y1="14" x2="40" y2="66" stroke="#7080b0" stroke-width="3" stroke-linecap="round"/><line x1="40" y1="40" x2="21" y2="57" stroke="#7080b0" stroke-width="3" stroke-linecap="round"/><line x1="40" y1="40" x2="59" y2="57" stroke="#7080b0" stroke-width="3" stroke-linecap="round"/></svg>` },
+
+  { id:'arrow', label:'Arrow', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M14 40 L58 40" stroke="#8a6040" stroke-width="3" stroke-linecap="round"/><path d="M48 26 L66 40 L48 54" fill="none" stroke="#8a6040" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><line x1="18" y1="30" x2="22" y2="26" stroke="#b08050" stroke-width="1.5" stroke-linecap="round"/><line x1="14" y1="36" x2="20" y2="30" stroke="#b08050" stroke-width="1.5" stroke-linecap="round"/></svg>` },
+
+  { id:'crown', label:'Crown', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M10 56 L10 36 L26 48 L40 22 L54 48 L70 36 L70 56 Z" fill="#f6c94e" stroke="#c89030" stroke-width="2.5" stroke-linejoin="round"/><rect x="10" y="56" width="60" height="8" rx="2" fill="#f6c94e" stroke="#c89030" stroke-width="2"/><circle cx="40" cy="22" r="4" fill="#e05c5c" stroke="#a03030" stroke-width="1.5"/><circle cx="10" cy="36" r="3.5" fill="#e05c5c" stroke="#a03030" stroke-width="1.5"/><circle cx="70" cy="36" r="3.5" fill="#e05c5c" stroke="#a03030" stroke-width="1.5"/></svg>` },
+
+  { id:'sparkle', label:'Sparkle', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M40 8 L43 36 L71 40 L43 44 L40 72 L37 44 L9 40 L37 36 Z" fill="#f8e870" stroke="#c8a820" stroke-width="2" stroke-linejoin="round"/><path d="M62 14 L63.5 22 L71 24 L63.5 25.5 L62 34 L60.5 25.5 L53 24 L60.5 22 Z" fill="#f8e870" stroke="#c8a820" stroke-width="1.5" stroke-linejoin="round"/><path d="M16 56 L17 61 L22 62 L17 63 L16 68 L15 63 L10 62 L15 61 Z" fill="#f8e870" stroke="#c8a820" stroke-width="1.5" stroke-linejoin="round"/></svg>` },
+
+  { id:'cassette', label:'Cassette', svg:`<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="20" width="60" height="40" rx="6" fill="#e8ddd0" stroke="#a09080" stroke-width="2"/><rect x="18" y="28" width="44" height="22" rx="3" fill="#d4c8b8" stroke="#a09080" stroke-width="1.5"/><circle cx="28" cy="39" r="7" fill="#fff" stroke="#a09080" stroke-width="1.5"/><circle cx="28" cy="39" r="3" fill="#6a7080" stroke="#4a5060" stroke-width="1"/><circle cx="52" cy="39" r="7" fill="#fff" stroke="#a09080" stroke-width="1.5"/><circle cx="52" cy="39" r="3" fill="#6a7080" stroke="#4a5060" stroke-width="1"/><path d="M31 39 L49 39" stroke="#c8b8a8" stroke-width="1.5"/><rect x="36" y="50" width="8" height="4" rx="1" fill="#a09080"/><rect x="22" y="20" width="6" height="5" rx="1" fill="#c8b8a8" stroke="#a09080" stroke-width="1"/><rect x="52" y="20" width="6" height="5" rx="1" fill="#c8b8a8" stroke="#a09080" stroke-width="1"/></svg>` }
+];
+
+// Film presets cycling
+const FILM_PRESETS = ['film-kodak','film-fuji','film-ilford','film-lomo','film-expired'];
+let filmIdx = 0;
+
+// Core refs
+const video        = document.getElementById('webcam');
+const shutterBtn   = document.getElementById('shutter-btn');
+const canvas       = document.getElementById('capture-canvas');
+const ctx          = canvas.getContext('2d');
+const photoWall    = document.getElementById('photo-wall');
+const flashOverlay = document.getElementById('flash-overlay');
+const shotCounter  = document.getElementById('shot-counter');
+let zBase = 110, shotCount = 0;
+
+// Build sticker bar
+const stickerScroll = document.getElementById('sticker-scroll');
+STICKERS.forEach(s => {
+  const item = document.createElement('div');
+  item.className = 'sticker-item';
+  item.title = s.label;
+  item.innerHTML = s.svg;
+  item.addEventListener('click', () => placeSticker(s));
+  stickerScroll.appendChild(item);
+});
+
+// Place a sticker on the board
+function placeSticker(s) {
+  const el = document.createElement('div');
+  el.className = 'board-sticker';
+  el.dataset.stickerId = s.id;
+  el.innerHTML = s.svg;
+  el.style.zIndex = zBase++;
+  const maxY = window.innerHeight - 108 - 100;
+  el.style.left = (80 + Math.random() * (window.innerWidth - 200)) + 'px';
+  el.style.top  = (80 + Math.random() * Math.max(maxY - 80, 80)) + 'px';
+  const rot = (Math.random() - 0.5) * 26;
+  el.style.transform = `rotate(${rot}deg)`;
+
+  const del = document.createElement('div');
+  del.className = 'sticker-delete';
+  del.innerHTML = '&times;';
+  del.addEventListener('click', e => { e.stopPropagation(); el.remove(); });
+  el.appendChild(del);
+
+  photoWall.appendChild(el);
+  makeDraggable(el);
+
+  // Pop animation
+  el.style.opacity = '0';
+  el.style.transform = `rotate(${rot}deg) scale(0.3)`;
+  requestAnimationFrame(() => {
+    el.style.transition = 'opacity .25s, transform .3s cubic-bezier(.34,1.56,.64,1)';
+    el.style.opacity = '1';
+    el.style.transform = `rotate(${rot}deg) scale(1)`;
+  });
+  setTimeout(() => { el.style.transition = ''; }, 350);
+}
+
+// Background switcher
+function changeBg(cls, el) {
+  document.body.className = cls;
+  document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+  if (el) el.classList.add('active');
+}
+
+// Camera
+async function initCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 640 } });
+    video.srcObject = stream;
+  } catch(e) { console.warn('Camera unavailable', e); }
+}
+initCamera();
+
+// Audio
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+const audioCtx = new AudioCtx();
+function playShutterSound() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(600, t);
+  osc.frequency.exponentialRampToValueAtTime(80, t + 0.08);
+  g.gain.setValueAtTime(0.7, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  osc.connect(g); g.connect(audioCtx.destination); osc.start(); osc.stop(t + 0.08);
+  const bl = audioCtx.sampleRate * 1.2;
+  const buf = audioCtx.createBuffer(1, bl, audioCtx.sampleRate);
+  const d = buf.getChannelData(0); for(let i=0;i<bl;i++) d[i]=Math.random()*2-1;
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const flt = audioCtx.createBiquadFilter(); flt.type = 'lowpass'; flt.frequency.value = 350;
+  const ng = audioCtx.createGain();
+  ng.gain.setValueAtTime(0.15, t+0.08); ng.gain.linearRampToValueAtTime(0, t+1.3);
+  src.connect(flt); flt.connect(ng); ng.connect(audioCtx.destination); src.start(t+0.08);
+}
+
+// Shutter
+shutterBtn.addEventListener('click', () => {
+  flashOverlay.classList.add('flash-active');
+  playShutterSound();
+  setTimeout(() => flashOverlay.classList.remove('flash-active'), 50);
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 640;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const imgUrl = canvas.toDataURL('image/jpeg', 0.92);
+  shotCount++; shotCounter.textContent = String(shotCount).padStart(2,'0');
+  createPolaroid(imgUrl);
+});
+
+// Create polaroid
+function createPolaroid(imgSrc) {
+  const el = document.createElement('div');
+  el.className = 'polaroid-photo';
+  const rot = (Math.random() - 0.5) * 14;
+  const preset = FILM_PRESETS[filmIdx++ % FILM_PRESETS.length];
+
+  const inner = document.createElement('div'); inner.className = 'photo-inner';
+  const img   = document.createElement('img'); img.className = 'photo-img'; img.src = imgSrc;
+  const grain = document.createElement('div'); grain.className = 'grain-overlay';
+  const vign  = document.createElement('div'); vign.className  = 'vignette-overlay';
+  const leak  = document.createElement('div'); leak.className  = 'leak-overlay';
+  inner.append(img, grain, vign, leak);
+
+  const lbl = document.createElement('div'); lbl.className = 'film-label';
+  lbl.textContent = preset.replace('film-','');
+
+  const ts = document.createElement('div'); ts.className = 'photo-timestamp';
+  ts.textContent = new Date().toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+
+  const del = document.createElement('button'); del.className = 'delete-btn'; del.innerHTML = '&times;';
+  del.addEventListener('click', e => {
+    e.stopPropagation();
+    el.style.transition = 'opacity .3s, transform .3s';
+    el.style.opacity = '0'; el.style.transform += ' scale(0.85)';
+    setTimeout(() => el.remove(), 320);
+  });
+
+  el.append(inner, lbl, ts, del);
+  photoWall.appendChild(el);
+  el.style.animation = 'ejectUp 1.6s cubic-bezier(.2,.8,.2,1) forwards';
+
+  setTimeout(() => {
+    const rect = el.getBoundingClientRect();
+    el.style.animation = 'none'; el.style.opacity = '1';
+    el.style.top = rect.top + 'px'; el.style.left = rect.left + 'px';
+    el.style.transform = `rotate(${rot}deg)`; el.style.zIndex = zBase++;
+    makeDraggable(el);
+    setTimeout(() => img.classList.add('developed', preset), 80);
+  }, 1600);
+}
+
+// ─────────────────────────────────────────────
+//  SAVE FULL LAYOUT
+// ─────────────────────────────────────────────
+async function downloadLayout() {
+  const W = window.innerWidth, H = window.innerHeight, SC = 2;
+  const oc2 = document.createElement('canvas');
+  oc2.width = W*SC; oc2.height = H*SC;
+  const oc = oc2.getContext('2d');
+  oc.scale(SC, SC);
+
+  // Background
+  const bc = document.body.className;
+  if (bc === 'bg-night') { oc.fillStyle = '#1a1614'; }
+  else if (bc === 'bg-sage')  { oc.fillStyle = '#c8cfc4'; }
+  else if (bc === 'bg-blush') { oc.fillStyle = '#e2c4c4'; }
+  else if (bc === 'bg-gradient') {
+    const g = oc.createLinearGradient(0,0,W,H);
+    g.addColorStop(0,'#ffd6cc'); g.addColorStop(.4,'#fce4ec'); g.addColorStop(1,'#e8d5f0');
+    oc.fillStyle = g;
+  } else { oc.fillStyle = '#f5f2ee'; }
+  oc.fillRect(0,0,W,H);
+
+  // Collect items sorted by z-index
+  const items = [];
+  document.querySelectorAll('.polaroid-photo').forEach(el => items.push({type:'photo',el,z:+el.style.zIndex||0}));
+  document.querySelectorAll('.board-sticker').forEach(el  => items.push({type:'sticker',el,z:+el.style.zIndex||0}));
+  items.push({ type:'camera', el: document.getElementById('camera-wrapper'), z:100 });
+  items.sort((a,b) => a.z - b.z);
+
+  for (const item of items) {
+    const rect = item.el.getBoundingClientRect();
+    if (item.type === 'photo')   await renderPhoto(oc, item.el, rect);
+    if (item.type === 'sticker') await renderSticker(oc, item.el, rect);
+    if (item.type === 'camera')  renderCamera(oc, rect);
+  }
+
+  const a = document.createElement('a');
+  a.download = `Polaroid_${Date.now()}.png`;
+  a.href = oc2.toDataURL('image/png');
+  a.click();
+}
+
+function rrect(c, x,y,w,h,r) {
+  if (typeof r === 'number') r=[r,r,r,r];
+  c.beginPath();
+  c.moveTo(x+r[0],y); c.lineTo(x+w-r[1],y); c.arcTo(x+w,y,x+w,y+r[1],r[1]);
+  c.lineTo(x+w,y+h-r[2]); c.arcTo(x+w,y+h,x+w-r[2],y+h,r[2]);
+  c.lineTo(x+r[3],y+h); c.arcTo(x,y+h,x,y+h-r[3],r[3]);
+  c.lineTo(x,y+r[0]); c.arcTo(x,y,x+r[0],y,r[0]); c.closePath();
+}
+
+async function renderPhoto(oc, el, rect) {
+  const imgEl = el.querySelector('.photo-img');
+  const rotM = el.style.transform.match(/rotate\(([^)]+)deg\)/);
+  const ang  = rotM ? parseFloat(rotM[1]) * Math.PI / 180 : 0;
+  const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+
+  return new Promise(resolve => {
+    oc.save(); oc.translate(cx,cy); oc.rotate(ang);
+    oc.shadowColor='rgba(0,0,0,0.22)'; oc.shadowBlur=18; oc.shadowOffsetY=6;
+    oc.fillStyle='#fefefe';
+    rrect(oc,-rect.width/2,-rect.height/2,rect.width,rect.height,2);
+    oc.fill(); oc.shadowColor='transparent';
+
+    const pad=12, pw=rect.width-pad*2, ph=rect.height-pad-46;
+    const tmp = new Image(); tmp.src = imgEl.src;
+    tmp.onload = () => {
+      oc.save();
+      oc.beginPath(); oc.rect(-rect.width/2+pad,-rect.height/2+pad,pw,ph); oc.clip();
+      oc.translate(-rect.width/2+pad+pw,-rect.height/2+pad); oc.scale(-1,1);
+      const cls = [...imgEl.classList];
+      let f = 'sepia(0.28) contrast(1.12) brightness(0.97) saturate(0.88)';
+      if(cls.includes('film-fuji'))    f='hue-rotate(8deg) saturate(1.1) contrast(1.08) brightness(0.93) sepia(0.15)';
+      if(cls.includes('film-ilford'))  f='grayscale(0.85) contrast(1.2) brightness(0.94) sepia(0.12)';
+      if(cls.includes('film-lomo'))    f='saturate(1.35) contrast(1.3) brightness(0.88) hue-rotate(-12deg) sepia(0.1)';
+      if(cls.includes('film-expired')) f='sepia(0.55) contrast(0.9) brightness(0.88) saturate(0.6) hue-rotate(5deg)';
+      oc.filter = f;
+      oc.drawImage(tmp,0,0,pw,ph);
+      oc.filter = 'none';
+      // Vignette
+      const vg = oc.createRadialGradient(pw/2,ph/2,pw*.28,pw/2,ph/2,pw*.75);
+      vg.addColorStop(0,'transparent'); vg.addColorStop(1,'rgba(0,0,0,0.40)');
+      oc.fillStyle=vg; oc.fillRect(0,0,pw,ph);
+      oc.restore();
+      // Labels
+      oc.fillStyle='#bbb'; oc.font='7.5px DM Mono,monospace'; oc.textAlign='right';
+      const lbl=el.querySelector('.film-label');
+      if(lbl) oc.fillText(lbl.textContent, rect.width/2-12, rect.height/2-12);
+      const ts=el.querySelector('.photo-timestamp');
+      if(ts){ oc.textAlign='left'; oc.fillText(ts.textContent,-rect.width/2+12,rect.height/2-12); }
+      oc.restore(); resolve();
+    };
+    tmp.onerror=()=>{ oc.restore(); resolve(); };
+  });
+}
+
+async function renderSticker(oc, el, rect) {
+  const svgEl = el.querySelector('svg'); if(!svgEl) return;
+  const clone = svgEl.cloneNode(true);
+  clone.setAttribute('width','80'); clone.setAttribute('height','80');
+  const blob = new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'});
+  const url  = URL.createObjectURL(blob);
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const rotM = el.style.transform.match(/rotate\(([^)]+)deg\)/);
+      const ang  = rotM ? parseFloat(rotM[1]) * Math.PI/180 : 0;
+      const cx = rect.left+rect.width/2, cy = rect.top+rect.height/2;
+      oc.save(); oc.translate(cx,cy); oc.rotate(ang);
+      oc.drawImage(img,-rect.width/2,-rect.height/2,rect.width,rect.height);
+      oc.restore(); URL.revokeObjectURL(url); resolve();
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); resolve(); };
+    img.src=url;
+  });
+}
+
+function renderCamera(oc, rect) {
+  const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;
+  const W=rect.width, H=rect.height;
+  oc.save(); oc.translate(cx,cy);
+  // Slot
+  oc.fillStyle='#0d0b0a';
+  rrect(oc,-90,-H/2-14,180,14,[6,6,0,0]); oc.fill();
+  // Body
+  oc.shadowColor='rgba(0,0,0,0.45)'; oc.shadowBlur=28; oc.shadowOffsetY=14;
+  const bg=oc.createLinearGradient(-W/2,-H/2,W/2,H/2);
+  bg.addColorStop(0,'#2e2926'); bg.addColorStop(1,'#1c1916');
+  oc.fillStyle=bg; rrect(oc,-W/2,-H/2,W,H,28); oc.fill();
+  oc.shadowColor='transparent';
+  // Face
+  const fw=W*.88,fh=H*.62;
+  const fg=oc.createLinearGradient(0,-H/2+14,0,-H/2+14+fh);
+  fg.addColorStop(0,'#3a3530'); fg.addColorStop(1,'#282421');
+  oc.fillStyle=fg; rrect(oc,-fw/2,-H/2+14,fw,fh,18); oc.fill();
+  // Flash unit
+  oc.fillStyle='#d0cec8'; oc.beginPath(); oc.arc(-fw/2+39,-H/2+43,21,0,Math.PI*2); oc.fill();
+  oc.strokeStyle='#1c1916'; oc.lineWidth=4; oc.stroke();
+  // Lens rings
+  oc.fillStyle='#0a0908'; oc.beginPath(); oc.arc(0,-H/2+fh/2+14,64,0,Math.PI*2); oc.fill();
+  oc.strokeStyle='#3a3530'; oc.lineWidth=5; oc.stroke();
+  oc.fillStyle='#1a2840'; oc.beginPath(); oc.arc(0,-H/2+fh/2+14,40,0,Math.PI*2); oc.fill();
+  oc.fillStyle='#0d1520'; oc.beginPath(); oc.arc(0,-H/2+fh/2+14,24,0,Math.PI*2); oc.fill();
+  oc.fillStyle='rgba(255,255,255,0.15)'; oc.beginPath(); oc.arc(-10,-H/2+fh/2+4,10,0,Math.PI*2); oc.fill();
+  // Shutter
+  const sg=oc.createRadialGradient(-fw/2+38,H*.07,2,-fw/2+38,H*.07,16);
+  sg.addColorStop(0,'#e8432d'); sg.addColorStop(1,'#8b1a0d');
+  oc.fillStyle=sg; oc.beginPath(); oc.arc(-fw/2+38,H*.07,16,0,Math.PI*2); oc.fill();
+  // Brand
+  oc.fillStyle='#8a7e75'; oc.font='italic 20px Georgia,serif';
+  oc.textAlign='center'; oc.fillText('polaroid',0,H*.27);
+  // Slot lip
+  oc.fillStyle='#0d0b0a'; rrect(oc,-105,H/2-22,210,7,4); oc.fill();
+  // Hint text
+  oc.fillStyle='rgba(155,145,137,0.75)'; oc.font='11px DM Mono,monospace';
+  oc.letterSpacing='2px'; oc.fillText('PRESS THE SHUTTER',0,H/2+32);
+  oc.restore();
+}
+
+// Drag
+function makeDraggable(el) {
+  let p1=0,p2=0,p3=0,p4=0;
+  el.addEventListener('mousedown', s);
+  el.addEventListener('touchstart', e=>s(e.touches[0]),{passive:true});
+  function s(e) {
+    if(e.target.classList.contains('delete-btn')||e.target.classList.contains('sticker-delete')) return;
+    el.style.zIndex=zBase++;
+    p3=e.clientX; p4=e.clientY;
+    document.addEventListener('mousemove',m); document.addEventListener('mouseup',u);
+    document.addEventListener('touchmove',t=>m(t.touches[0]),{passive:true}); document.addEventListener('touchend',u);
+  }
+  function m(e) {
+    p1=p3-e.clientX; p2=p4-e.clientY; p3=e.clientX; p4=e.clientY;
+    el.style.top=(el.offsetTop-p2)+'px'; el.style.left=(el.offsetLeft-p1)+'px';
+  }
+  function u() {
+    document.removeEventListener('mousemove',m); document.removeEventListener('mouseup',u);
+    document.removeEventListener('touchmove',m); document.removeEventListener('touchend',u);
+  }
+}
+</script>
+</body>
+</html>
